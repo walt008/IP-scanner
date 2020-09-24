@@ -1,0 +1,90 @@
+#!/bin/bash
+#main---网段范围不能大于20，默认23,最多扫描2046个。
+
+#检查输入IP段是否合法
+while true ;do
+
+read -p "输入IP段,默认172.17.40：" network
+
+if [ "$network" == "" ];then
+    network=172.17.40
+fi
+
+echo $network.1|grep "^[0-9]\{1,3\}\.\([0-9]\{1,3\}\.\)\{2\}[0-9]\{1,3\}$" > /dev/null;
+
+        if [ $? -ne 0 ]
+        then
+        	echo "IP段不合法  $network"
+        	continue
+        fi
+        #以"."分隔，取出每个列的值
+        
+        a=`echo $network|awk -F . '{print $1}'`  
+        b=`echo $network|awk -F . '{print $2}'`
+        c=`echo $network|awk -F . '{print $3}'`
+        
+        for num in $a $b $c
+        do
+            if [ $num -gt 255 ] || [ $num -lt 0 ]  #每个数值必须在0-255之间
+            then
+            	echo "IP地址不能大于255"
+            	continue 2
+            fi
+        done       
+    break
+done
+
+#限制扫描范围
+while [[ $mask -lt 20 ]] || [[ $mask -gt 24 ]]
+do
+read -p "输入21-24之间的子网掩码，默认23：" mask
+
+if [ "$mask" == "" ];then
+    mask=23
+fi
+done
+
+ip1=`echo $network|awk -F. '{print$1}'`
+ip2=`echo $network|awk -F. '{print$2}'`
+
+#网段范围计算
+let mask1=$((2**$((24-$mask))))-1
+		
+IP=1
+mask2=0
+:>IP_use-$network-$mask.txt
+:>IP_idle-$network-$mask.txt
+
+echo "`date +%T`-->>开始扫描......"
+while [ $mask2 -le $mask1 ]
+do
+#限制网段扫描IP数
+  while [ $IP -lt 255  ]
+  do
+	ip3=$((`echo $network|awk -F. '{print$3}'`+$mask2))
+	
+	host=$ip1.$ip2.$ip3.$IP
+
+	echo "-->开始检测服务器 $host ..."
+    #超时时间设置
+	sum_ping=`ping $host -c 2 -W 100` 
+
+	a=`echo $sum_ping |head -1|awk '{print$8}'`
+	b=`echo $sum_ping |head -1|awk '{print$13$14}'`
+	
+	if [[ $a == "bytes" ]];then
+		echo "$host 使用中! $b"
+    	echo "$host 使用中"  >>IP_use-$network-$mask.txt    	
+  	else
+    	echo "$host  空闲，$a"
+    	echo "$host  空闲"  >>IP_idle-$network-$mask.txt
+	fi
+	
+  IP=$((IP+1))
+  done
+
+mask2=$((mask2+1))
+IP=1
+done
+
+echo "`date +%T` -->>扫描完成，空闲IP `sed -n '$=' IP_idle-$network-$mask.txt` 个,详细在当前目录 IP_idle-$network-$mask.txt 文件中."
